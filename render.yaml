@@ -2,6 +2,7 @@ services:
   - type: web
     name: understudy-api
     runtime: docker
+    plan: free
     dockerContext: .
     dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /health
@@ -16,5 +17,6 @@ services:
         value: chrome-extension://ommkljifocbafblgniaibpdkfdcjolem
 databases:
   - name: understudy-db
+    plan: free
     databaseName: understudy
     user: understudy
