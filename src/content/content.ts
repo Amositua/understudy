@@ -155,12 +155,22 @@ function makeNavigationStep(): UnindexedStep {
 }
 
 function send(payload: CapturePayload): void {
-  if (!recording) return;
   chrome.runtime.sendMessage({ type: "CAPTURE", payload } satisfies Message).catch(() => undefined);
 }
 
-function capture(type: UnindexedStep["type"], element: Element, value?: string): void {
-  if (!recording) return;
+async function recorderIsActive(): Promise<boolean> {
+  if (recording) return true;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "RECORDER_STATUS" } satisfies Message) as StateResponse;
+    recording = response.state.recording;
+    return recording;
+  } catch {
+    return false;
+  }
+}
+
+async function capture(type: UnindexedStep["type"], element: Element, value?: string): Promise<void> {
+  if (!(await recorderIsActive())) return;
   const steps: UnindexedStep[] = [];
   if (pendingScroll && type !== "scroll") {
     const rect = element.getBoundingClientRect();
@@ -171,14 +181,14 @@ function capture(type: UnindexedStep["type"], element: Element, value?: string):
   send({ steps, snapshots: [snapshot(element)] });
 }
 
-function navigation(): void {
-  if (!recording || window.location.href === lastUrl) return;
+async function navigation(): Promise<void> {
+  if (!(await recorderIsActive()) || window.location.href === lastUrl) return;
   if (navigationTimer) window.clearTimeout(navigationTimer);
   const observedUrl = window.location.href;
   const record = (): void => {
     if (!recording) return;
     if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", () => window.setTimeout(record, 250), { once: true }); return; }
-    if (window.location.href !== observedUrl) { navigation(); return; }
+    if (window.location.href !== observedUrl) { void navigation(); return; }
     if (window.location.href === lastUrl) return;
     lastUrl = window.location.href;
     send({ steps: [makeNavigationStep()], snapshots: [snapshot(document.documentElement)] });
@@ -188,13 +198,13 @@ function navigation(): void {
 
 document.addEventListener("click", (event) => {
   const element = event.target instanceof Element ? event.target.closest("button, a, input, select, textarea, [role], [contenteditable=true]") ?? event.target : null;
-  if (element) capture("click", element);
+  if (element) void capture("click", element);
 }, true);
 document.addEventListener("input", (event) => {
   const element = event.target;
   if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return;
   if (inputTimer) window.clearTimeout(inputTimer);
-  inputTimer = window.setTimeout(() => capture("input", element, element.value), 500);
+  inputTimer = window.setTimeout(() => void capture("input", element, element.value), 500);
 }, true);
 document.addEventListener("change", (event) => {
   const element = event.target;
@@ -202,20 +212,20 @@ document.addEventListener("change", (event) => {
   const isToggle = element instanceof HTMLInputElement && ["checkbox", "radio"].includes(element.type);
   if (!(element instanceof HTMLSelectElement || isToggle)) return;
   if (inputTimer) window.clearTimeout(inputTimer);
-  capture("change", element, isToggle && element instanceof HTMLInputElement ? String(element.checked) : element.value);
+  void capture("change", element, isToggle && element instanceof HTMLInputElement ? String(element.checked) : element.value);
 }, true);
 window.addEventListener("scroll", () => { pendingScroll = { x: window.scrollX, y: window.scrollY, timestamp: Date.now() }; }, { passive: true });
-window.addEventListener("popstate", navigation);
+window.addEventListener("popstate", () => void navigation());
 
 const originalPushState = history.pushState;
 history.pushState = function (data: unknown, unused: string, url?: string | URL | null): void {
   originalPushState.call(history, data, unused, url);
-  queueMicrotask(navigation);
+  queueMicrotask(() => void navigation());
 };
 const originalReplaceState = history.replaceState;
 history.replaceState = function (data: unknown, unused: string, url?: string | URL | null): void {
   originalReplaceState.call(history, data, unused, url);
-  queueMicrotask(navigation);
+  queueMicrotask(() => void navigation());
 };
 
 chrome.runtime.onMessage.addListener((message: Message) => {
@@ -227,6 +237,6 @@ chrome.runtime.sendMessage({ type: "RECORDER_STATUS" } satisfies Message).then((
   recording = response.state.recording;
   if (recording) {
     lastUrl = "";
-    navigation();
+    void navigation();
   }
 }).catch(() => undefined);
