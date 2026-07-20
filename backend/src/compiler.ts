@@ -1,5 +1,5 @@
-import { ProcedureSchema, type Procedure } from "../../src/lib/procedure.js";
-import type { Trace } from "../../src/lib/types.js";
+import { ProcedureSchema, type Procedure } from "./procedure.js";
+type Trace = { trace_id: string; steps: unknown[]; snapshots: Array<{ url: string; timestamp: number; nodes: Array<{ role: string; accessible_name: string }> }>; notes: unknown[] };
 
 const prompt = `You are Understudy's Compiler. Convert a browser trace into one durable Procedure JSON object. Return JSON only. Capture intent, not clicks. Remove scroll/focus/redundancy and merge incidental menu clicks. Identify credentials, dates, search terms, and note-marked values as inputs; password values are secret inputs. Identify reads/copies as extract steps. Describe targets semantically, never with selectors, colours, or positions. Every step needs a verifiable expected_page. Mark cookie banners/modals optional. The JSON must have procedure_id, name, description, starting_url, inputs, steps, outputs. Steps have intent, action, target_description, target_hints, expected_page, optional, and when applicable value_source or extract.`;
 
