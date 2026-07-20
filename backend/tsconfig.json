@@ -1,0 +1,1 @@
+{ "compilerOptions": { "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext", "strict": true, "rootDir": "..", "outDir": "dist", "esModuleInterop": true, "skipLibCheck": true, "types": ["node"] }, "include": ["src", "../src/lib/procedure.ts", "../src/lib/types.ts"] }

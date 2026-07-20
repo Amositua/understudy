@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Understudy",
+  "version": "0.1.0",
+  "description": "Teach a web workflow once, then replay it.",
+  "permissions": ["storage", "tabs", "activeTab", "sidePanel"],
+  "host_permissions": ["<all_urls>", "http://localhost/*", "https://*.onrender.com/*"],
+  "background": { "service_worker": "background/service-worker.js", "type": "module" },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content/content.js"],
+    "run_at": "document_idle"
+  }],
+  "side_panel": { "default_path": "src/sidepanel/index.html" },
+  "action": { "default_title": "Open Understudy" }
+}
