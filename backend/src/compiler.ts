@@ -8,7 +8,12 @@ async function callOpenAI(input: string, repair?: string): Promise<string> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY is not configured on the server.");
   const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ model: "gpt-5.6", input: [{ role: "system", content: prompt }, { role: "user", content: `${repair ?? ""}\n${input}` }], text: { format: { type: "json_object" } } }) });
-  if (!response.ok) throw new Error(`OpenAI request failed (${response.status}).`);
+  if (!response.ok) {
+    const failure = await response.json().catch(() => null) as { error?: { message?: string; type?: string; code?: string } } | null;
+    const detail = failure?.error?.message ?? "No additional error detail was returned by OpenAI.";
+    const code = failure?.error?.code ? ` [${failure.error.code}]` : "";
+    throw new Error(`OpenAI request failed (${response.status})${code}: ${detail}`);
+  }
   const body = await response.json() as { output_text?: string };
   if (!body.output_text) throw new Error("OpenAI returned no compiler output.");
   return body.output_text;
