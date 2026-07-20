@@ -28,10 +28,6 @@ async function persistSession(): Promise<void> {
   await chrome.storage.session.set({ [SESSION_KEY]: state });
 }
 
-function broadcast(message: Message): void {
-  chrome.runtime.sendMessage(message).catch(() => undefined);
-}
-
 async function captureScreenshot(windowId: number | undefined): Promise<string | null> {
   try {
     const options = { format: "jpeg" as const, quality: 60 };
@@ -64,7 +60,6 @@ async function recordCapture(payload: CapturePayload, windowId?: number): Promis
     if (screenshot) trace.screenshots.push({ step_index: step.index, data_url: screenshot });
   }
   await persistSession();
-  broadcast({ type: "GET_STATE" });
 }
 
 async function startRecording(): Promise<RecorderState> {
