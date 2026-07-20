@@ -5,6 +5,7 @@ let recording = false;
 let inputTimer: number | undefined;
 let pendingScroll: { x: number; y: number; timestamp: number } | null = null;
 let lastUrl = location.href;
+let navigationTimer: number | undefined;
 
 const interactiveRoles = new Set(["button", "checkbox", "combobox", "link", "menuitem", "option", "radio", "searchbox", "slider", "spinbutton", "switch", "tab", "textbox"]);
 const landmarkRoles = new Set(["banner", "complementary", "contentinfo", "form", "main", "navigation", "region", "search"]);
@@ -138,6 +139,21 @@ function makeStep(type: UnindexedStep["type"], element: Element, value?: string)
   return { type, timestamp: Date.now(), url: location.href, page_title: document.title, target: targetFor(element), ...(value !== undefined ? { value } : {}), page_context: context(element) };
 }
 
+function makeNavigationStep(): UnindexedStep {
+  const url = window.location.href;
+  const pageTitle = document.title.trim() || url;
+  return {
+    type: "navigate", timestamp: Date.now(), url, page_title: pageTitle,
+    target: {
+      role: "document", accessible_name: pageTitle, tag: "html", text: "",
+      attributes: { href: url },
+      selector_candidates: [`url=${url}`, "document", "html"],
+      bounding_box: { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight }
+    },
+    page_context: { heading_hierarchy: Array.from(document.querySelectorAll("h1, h2, h3")).map((heading) => textOf(heading)).filter(Boolean), landmark: "document" }
+  };
+}
+
 function send(payload: CapturePayload): void {
   if (!recording) return;
   chrome.runtime.sendMessage({ type: "CAPTURE", payload } satisfies Message).catch(() => undefined);
@@ -156,9 +172,18 @@ function capture(type: UnindexedStep["type"], element: Element, value?: string):
 }
 
 function navigation(): void {
-  if (!recording || location.href === lastUrl) return;
-  lastUrl = location.href;
-  send({ steps: [makeStep("navigate", document.documentElement)], snapshots: [snapshot(document.documentElement)] });
+  if (!recording || window.location.href === lastUrl) return;
+  if (navigationTimer) window.clearTimeout(navigationTimer);
+  const observedUrl = window.location.href;
+  const record = (): void => {
+    if (!recording) return;
+    if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", () => window.setTimeout(record, 250), { once: true }); return; }
+    if (window.location.href !== observedUrl) { navigation(); return; }
+    if (window.location.href === lastUrl) return;
+    lastUrl = window.location.href;
+    send({ steps: [makeNavigationStep()], snapshots: [snapshot(document.documentElement)] });
+  };
+  navigationTimer = window.setTimeout(record, 250);
 }
 
 document.addEventListener("click", (event) => {

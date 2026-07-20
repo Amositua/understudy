@@ -4,7 +4,7 @@ import type { Step, Trace } from "../lib/types";
 import { ProcedureSchema, type Procedure, type ProcedureInput, type ProcedureStep } from "../lib/procedure";
 
 const actions = ["click", "type", "select", "navigate", "extract", "wait"] as const;
-function description(step: Step): string { const name = step.target.accessible_name || step.target.text || step.target.tag; const verbs: Record<Step["type"], string> = { click: "Clicked", input: "Typed into", change: "Changed", navigate: "Navigated to", scroll: "Scrolled to" }; return `${verbs[step.type]} '${name}'`; }
+function description(step: Step): string { if (step.type === "navigate") return `Navigated to '${step.page_title || step.url}' (${step.url})`; const name = step.target.accessible_name || step.target.text || step.target.tag; const verbs: Record<Exclude<Step["type"], "navigate">, string> = { click: "Clicked", input: "Typed into", change: "Changed", scroll: "Scrolled to" }; return `${verbs[step.type]} '${name}'`; }
 function StepList({ steps }: { steps: Step[] }) { return <ol className="space-y-2">{steps.map((step) => <li key={step.index} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm"><span className="mr-2 text-xs text-slate-500">{step.index + 1}</span>{description(step)}</li>)}</ol>; }
 
 function Review({ procedure, rawCount, onSave, onBack }: { procedure: Procedure; rawCount: number; onSave: (p: Procedure) => void; onBack: () => void }) {
