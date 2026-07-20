@@ -96,7 +96,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       case "STOP_RECORDING": sendResponse({ state: await stopRecording() }); break;
       case "GET_STATE": {
         const stored = await chrome.storage.local.get([TRACES_KEY, PROCEDURES_KEY, BACKEND_URL, SESSION]); const session = stored[SESSION] as api.Session | undefined;
-        sendResponse({ state, traces: (stored[TRACES_KEY] as Trace[] | undefined) ?? [], procedures: (stored[PROCEDURES_KEY] as Procedure[] | undefined) ?? [], backendUrl: stored[BACKEND_URL] as string | undefined, userEmail: session?.user.email });
+        sendResponse({ state, traces: (stored[TRACES_KEY] as Trace[] | undefined) ?? [], procedures: (stored[PROCEDURES_KEY] as Procedure[] | undefined) ?? [], backendUrl: (stored[BACKEND_URL] as string | undefined) ?? api.DEFAULT_API_URL, userEmail: session?.user.email });
         break;
       }
       case "RECORDER_STATUS": sendResponse({ state }); break;
@@ -115,13 +115,13 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
         break;
       case "AUTH_REGISTER":
       case "AUTH_LOGIN": {
-        const stored = await chrome.storage.local.get(BACKEND_URL); const url = stored[BACKEND_URL] as string | undefined; if (!url) throw new Error("Set the Understudy API URL in Settings first.");
+        const stored = await chrome.storage.local.get(BACKEND_URL); const url = (stored[BACKEND_URL] as string | undefined) ?? api.DEFAULT_API_URL;
         const session = message.type === "AUTH_REGISTER" ? await api.register(url, message.email, message.password) : await api.login(url, message.email, message.password); await chrome.storage.local.set({ [SESSION]: session }); sendResponse({ user: session.user });
         break;
       }
       case "LOGOUT": await chrome.storage.local.remove(SESSION); sendResponse({ ok: true }); break;
       case "COMPILE_TRACE": {
-        const stored = await chrome.storage.local.get([BACKEND_URL, SESSION]); const url = stored[BACKEND_URL] as string | undefined; const session = stored[SESSION] as api.Session | undefined; if (!url || !session) throw new Error("Sign in and configure the Understudy API before compiling.");
+        const stored = await chrome.storage.local.get([BACKEND_URL, SESSION]); const url = (stored[BACKEND_URL] as string | undefined) ?? api.DEFAULT_API_URL; const session = stored[SESSION] as api.Session | undefined; if (!session) throw new Error("Sign in before compiling.");
         const { procedure } = await api.compile(url, session.token, message.trace);
         const procedures = ((await chrome.storage.local.get(PROCEDURES_KEY))[PROCEDURES_KEY] as Procedure[] | undefined) ?? [];
         await chrome.storage.local.set({ [PROCEDURES_KEY]: [procedure, ...procedures.filter((item) => item.procedure_id !== procedure.procedure_id)] });
@@ -130,7 +130,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       }
       case "SAVE_PROCEDURE": {
         const procedures = ((await chrome.storage.local.get(PROCEDURES_KEY))[PROCEDURES_KEY] as Procedure[] | undefined) ?? [];
-        const stored = await chrome.storage.local.get([BACKEND_URL, SESSION]); const url = stored[BACKEND_URL] as string | undefined; const session = stored[SESSION] as api.Session | undefined; if (!url || !session) throw new Error("Sign in before saving procedures."); await api.saveProcedure(url, session.token, message.procedure); await chrome.storage.local.set({ [PROCEDURES_KEY]: [message.procedure, ...procedures.filter((item) => item.procedure_id !== message.procedure.procedure_id)] });
+        const stored = await chrome.storage.local.get([BACKEND_URL, SESSION]); const url = (stored[BACKEND_URL] as string | undefined) ?? api.DEFAULT_API_URL; const session = stored[SESSION] as api.Session | undefined; if (!session) throw new Error("Sign in before saving procedures."); await api.saveProcedure(url, session.token, message.procedure); await chrome.storage.local.set({ [PROCEDURES_KEY]: [message.procedure, ...procedures.filter((item) => item.procedure_id !== message.procedure.procedure_id)] });
         sendResponse({ procedure: message.procedure });
         break;
       }

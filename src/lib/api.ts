@@ -1,5 +1,6 @@
 import type { Procedure } from "./procedure";
 import type { Trace } from "./types";
+export const DEFAULT_API_URL = "https://understudy-api-phqs.onrender.com";
 export type Session = { token: string; user: { id: string; email: string } };
 async function request<T>(baseUrl: string, path: string, init: RequestInit = {}, token?: string): Promise<T> { const response = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers } }); const body = await response.json() as T & { error?: string }; if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`); return body; }
 export const register = (url: string, email: string, password: string) => request<Session>(url, "/auth/register", { method: "POST", body: JSON.stringify({ email, password }) });
