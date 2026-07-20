@@ -14,8 +14,13 @@ async function callOpenAI(input: string, repair?: string): Promise<string> {
     const code = failure?.error?.code ? ` [${failure.error.code}]` : "";
     throw new Error(`OpenAI request failed (${response.status})${code}: ${detail}`);
   }
-  const body = await response.json() as { output_text?: string };
-  if (!body.output_text) throw new Error("OpenAI returned no compiler output.");
-  return body.output_text;
+  const body = await response.json() as {
+    output_text?: string;
+    output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
+  };
+  const nestedText = body.output?.flatMap((item) => item.content ?? []).filter((item) => item.type === "output_text" && typeof item.text === "string").map((item) => item.text!).join("");
+  const output = body.output_text ?? nestedText;
+  if (!output) throw new Error("OpenAI returned no compiler output. Check the server logs for the raw response status.");
+  return output;
 }
 export async function compileTrace(trace: Trace): Promise<Procedure> { const input = context(trace); let raw = await callOpenAI(input); for (let attempt = 0; attempt < 2; attempt += 1) { try { return ProcedureSchema.parse(JSON.parse(raw)); } catch (error) { console.warn("Compiler validation failure", { attempt, error }); raw = await callOpenAI(input, `Repair invalid procedure JSON. Validation error: ${error instanceof Error ? error.message : String(error)}. Return JSON only.`); } } throw new Error("Compiler output did not validate after repair."); }
