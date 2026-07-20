@@ -228,9 +228,10 @@ history.replaceState = function (data: unknown, unused: string, url?: string | U
   queueMicrotask(() => void navigation());
 };
 
-chrome.runtime.onMessage.addListener((message: Message) => {
+chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   if (message.type === "RECORDING_STARTED") recording = true;
   if (message.type === "RECORDING_STOPPED") recording = false;
+  sendResponse({ content_recorder: true, recording, url: window.location.href });
 });
 
 chrome.runtime.sendMessage({ type: "RECORDER_STATUS" } satisfies Message).then((response: StateResponse) => {

@@ -68,13 +68,17 @@ async function startRecording(): Promise<RecorderState> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id) {
     try {
-      await chrome.tabs.sendMessage(tab.id, { type: "RECORDING_STARTED" });
-    } catch {
+      const armed = await chrome.tabs.sendMessage(tab.id, { type: "RECORDING_STARTED" }) as { content_recorder?: boolean } | undefined;
+      if (!armed?.content_recorder) throw new Error("Content recorder did not acknowledge start.");
+      console.info("Understudy recorder armed", { tabId: tab.id, url: tab.url });
+    } catch (initialError) {
       try {
         await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/content.js"] });
-        await chrome.tabs.sendMessage(tab.id, { type: "RECORDING_STARTED" });
-      } catch {
-        // Chrome internal pages cannot host a content script; the UI still records once a normal web page is active.
+        const armed = await chrome.tabs.sendMessage(tab.id, { type: "RECORDING_STARTED" }) as { content_recorder?: boolean } | undefined;
+        if (!armed?.content_recorder) throw new Error("Injected content recorder did not acknowledge start.");
+        console.info("Understudy recorder injected and armed", { tabId: tab.id, url: tab.url });
+      } catch (injectionError) {
+        console.error("Understudy could not arm the content recorder", { tabId: tab.id, url: tab.url, initialError, injectionError });
       }
     }
   }
