@@ -3,7 +3,7 @@
   "name": "Understudy",
   "version": "0.1.0",
   "description": "Teach a web workflow once, then replay it.",
-  "permissions": ["storage", "tabs", "activeTab", "sidePanel"],
+  "permissions": ["storage", "tabs", "activeTab", "sidePanel", "scripting"],
   "host_permissions": ["<all_urls>", "http://localhost/*", "https://*.onrender.com/*"],
   "background": { "service_worker": "background/service-worker.js", "type": "module" },
   "content_scripts": [{

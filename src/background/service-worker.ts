@@ -70,8 +70,19 @@ async function recordCapture(payload: CapturePayload, windowId?: number): Promis
 async function startRecording(): Promise<RecorderState> {
   state = { recording: true, trace: newTrace() };
   await persistSession();
-  const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) if (tab.id) chrome.tabs.sendMessage(tab.id, { type: "RECORDING_STARTED" }).catch(() => undefined);
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id) {
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "RECORDING_STARTED" });
+    } catch {
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/content.js"] });
+        await chrome.tabs.sendMessage(tab.id, { type: "RECORDING_STARTED" });
+      } catch {
+        // Chrome internal pages cannot host a content script; the UI still records once a normal web page is active.
+      }
+    }
+  }
   return state;
 }
 
