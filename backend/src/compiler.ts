@@ -3,11 +3,28 @@ type Trace = { trace_id: string; steps: unknown[]; snapshots: Array<{ url: strin
 
 const prompt = `You are Understudy's Compiler. Convert a browser trace into one durable Procedure JSON object. Return JSON only. Capture intent, not clicks. Remove scroll/focus/redundancy and merge incidental menu clicks. Identify credentials, dates, search terms, and note-marked values as inputs; password values are secret inputs. Identify reads/copies as extract steps. Describe targets semantically, never with selectors, colours, or positions. Every step needs a verifiable expected_page. Mark cookie banners/modals optional. The JSON must have procedure_id, name, description, starting_url, inputs, steps, outputs. Steps have intent, action, target_description, target_hints, expected_page, optional, and when applicable value_source or extract.`;
 
-function context(trace: Trace): string { return JSON.stringify({ trace_id: trace.trace_id, steps: trace.steps, snapshots: trace.snapshots.map((item) => ({ ...item, nodes: item.nodes.map((node) => `${node.role}: ${node.accessible_name}`) })), notes: trace.notes }); }
+function context(trace: Trace): string {
+  return JSON.stringify({
+    trace_id: trace.trace_id,
+    steps: trace.steps,
+    snapshots: trace.snapshots.map((item) => ({
+      url: item.url,
+      timestamp: item.timestamp,
+      nodes: item.nodes.filter((node) => node.role !== "generic" && node.accessible_name.trim()).slice(0, 80).map((node) => `${node.role}: ${node.accessible_name}`)
+    })),
+    notes: trace.notes
+  });
+}
 async function callOpenAI(input: string, repair?: string): Promise<string> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY is not configured on the server.");
-  const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ model: "gpt-5.6", input: [{ role: "system", content: prompt }, { role: "user", content: `${repair ?? ""}\n${input}` }], text: { format: { type: "json_object" } } }) });
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ model: "gpt-5.6", input: [{ role: "system", content: prompt }, { role: "user", content: `${repair ?? ""}\n${input}` }], text: { format: { type: "json_object" } } }), signal: AbortSignal.timeout(90_000) });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") throw new Error("OpenAI compilation timed out after 90 seconds. Try a shorter trace.");
+    throw error;
+  }
   if (!response.ok) {
     const failure = await response.json().catch(() => null) as { error?: { message?: string; type?: string; code?: string } } | null;
     const detail = failure?.error?.message ?? "No additional error detail was returned by OpenAI.";
