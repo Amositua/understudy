@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
+    "serve:fixtures": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run"
   },

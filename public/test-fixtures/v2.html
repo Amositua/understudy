@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reports Portal v2</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 48rem; color: #1f2937; }
+      form, section, aside { border: 1px solid #cbd5e1; border-radius: .5rem; padding: 1.5rem; }
+      label { display: block; margin-top: 1rem; font-weight: 600; }
+      input { display: block; box-sizing: border-box; margin-top: .35rem; padding: .5rem; width: 100%; }
+      button { cursor: pointer; margin-top: 1rem; padding: .55rem .9rem; }
+      table { border-collapse: collapse; margin-top: 1rem; width: 100%; }
+      th, td { border: 1px solid #cbd5e1; padding: .6rem; text-align: left; }
+      .hidden { display: none; }
+      .total { font-weight: 700; }
+      #cookie-banner { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; background: #fef3c7; }
+      #cookie-banner button { margin: 0 0 0 auto; }
+    </style>
+  </head>
+  <body>
+    <aside id="cookie-banner" aria-label="Cookie notice">
+      <span>This portal uses cookies to improve your experience.</span>
+      <button id="dismiss-cookies" type="button">Dismiss cookies</button>
+    </aside>
+
+    <main>
+      <h1>Reports Portal</h1>
+
+      <form id="login-form">
+        <h2>Sign in</h2>
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username" required />
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+
+        <button type="submit">Sign in</button>
+      </form>
+
+      <section id="report" class="hidden" aria-labelledby="report-title">
+        <header>
+          <h2 id="report-title">Monthly Report</h2>
+          <button id="download-report" type="button">Download CSV</button>
+        </header>
+        <table>
+          <caption>Monthly revenue summary</caption>
+          <thead><tr><th scope="col">Month</th><th scope="col">Revenue</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">January</th><td>$12,500</td></tr>
+            <tr><th scope="row">February</th><td>$14,200</td></tr>
+            <tr class="total"><th scope="row">Total Revenue</th><td>$26,700</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+    <script>
+      document.getElementById('dismiss-cookies').addEventListener('click', function () {
+        document.getElementById('cookie-banner').hidden = true;
+      });
+      document.getElementById('login-form').addEventListener('submit', function (event) {
+        event.preventDefault();
+        document.getElementById('login-form').classList.add('hidden');
+        document.getElementById('report').classList.remove('hidden');
+      });
+    </script>
+  </body>
+</html>
