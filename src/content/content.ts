@@ -9,6 +9,7 @@ let navigationTimer: number | undefined;
 
 const interactiveRoles = new Set(["button", "checkbox", "combobox", "link", "menuitem", "option", "radio", "searchbox", "slider", "spinbutton", "switch", "tab", "textbox"]);
 const landmarkRoles = new Set(["banner", "complementary", "contentinfo", "form", "main", "navigation", "region", "search"]);
+const interactiveSelector = "button, a[href], input, select, textarea, [contenteditable=true], [role=button], [role=link], [role=checkbox], [role=combobox], [role=menuitem], [role=option], [role=radio], [role=searchbox], [role=switch], [role=tab], [role=textbox]";
 
 function textOf(element: Element): string {
   return (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)
@@ -38,19 +39,40 @@ function implicitRole(element: Element): string {
 
 function roleOf(element: Element): string { return element.getAttribute("role") || implicitRole(element); }
 
+function trimName(value: string): string { return value.replace(/\s+/g, " ").trim().slice(0, 100); }
+
 function nameFromIds(ids: string | null): string {
-  return (ids ?? "").split(/\s+/).map((id) => document.getElementById(id)?.textContent?.trim() ?? "").join(" ").trim();
+  return trimName((ids ?? "").split(/\s+/).map((id) => document.getElementById(id)?.innerText?.trim() ?? document.getElementById(id)?.textContent?.trim() ?? "").join(" "));
+}
+
+function ownAccessibleName(element: Element): string {
+  const explicit = element.getAttribute("aria-label") || nameFromIds(element.getAttribute("aria-labelledby"));
+  if (explicit) return trimName(explicit);
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+    const label = element.labels?.[0]?.textContent?.trim();
+    return trimName(label || element.getAttribute("placeholder") || element.getAttribute("name") || element.value || "");
+  }
+  if (element instanceof HTMLImageElement) return trimName(element.alt);
+  const interactive = element.matches(interactiveSelector);
+  const visibleText = interactive ? (element as HTMLElement).innerText ?? "" : "";
+  return trimName(element.getAttribute("title") || visibleText || (element === document.documentElement ? document.title : ""));
 }
 
 function accessibleName(element: Element): string {
-  const explicit = element.getAttribute("aria-label") || nameFromIds(element.getAttribute("aria-labelledby"));
-  if (explicit) return explicit.trim().slice(0, 200);
-  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
-    const label = element.labels?.[0]?.textContent?.trim();
-    return (label || element.getAttribute("placeholder") || element.getAttribute("name") || element.value || "").slice(0, 200);
+  const ownName = ownAccessibleName(element);
+  if (ownName) return ownName;
+  let ancestor = element.parentElement;
+  for (let level = 0; ancestor && level < 2; level += 1, ancestor = ancestor.parentElement) {
+    if (ancestor.matches(interactiveSelector)) {
+      const ancestorName = ownAccessibleName(ancestor);
+      if (ancestorName) return ancestorName;
+    }
   }
-  if (element instanceof HTMLImageElement) return element.alt.slice(0, 200);
-  return (element.getAttribute("title") || textOf(element) || (element === document.documentElement ? document.title : "")).slice(0, 200);
+  return "";
+}
+
+function interactionTarget(target: Element): Element {
+  return target.closest(interactiveSelector) ?? target;
 }
 
 function cssPath(element: Element): string {
@@ -197,7 +219,7 @@ async function navigation(): Promise<void> {
 }
 
 document.addEventListener("click", (event) => {
-  const element = event.target instanceof Element ? event.target.closest("button, a, input, select, textarea, [role], [contenteditable=true]") ?? event.target : null;
+  const element = event.target instanceof Element ? interactionTarget(event.target) : null;
   if (element) void capture("click", element);
 }, true);
 document.addEventListener("input", (event) => {
