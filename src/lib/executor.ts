@@ -29,7 +29,7 @@ export type ExecutionState = {
   steps: ExecutionStepState[];
   outputs: Record<string, string>;
   error?: string;
-  paused?: { step_id: string; intent: string; found: string; reason: string };
+  paused?: { step_id: string; intent: string; found: string; reason: string; picking?: boolean };
 };
 
 export type RuntimeNode = { role: string; accessible_name: string; reference_id: string; nearby_text?: string };

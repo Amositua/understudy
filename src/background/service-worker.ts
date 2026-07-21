@@ -39,6 +39,15 @@ async function activeTab(): Promise<chrome.tabs.Tab> {
   return tab;
 }
 
+async function waitForTab(tabId: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(done, 10_000);
+    const listener = (updatedId: number, changeInfo: chrome.tabs.OnUpdatedInfo): void => { if (updatedId === tabId && changeInfo.status === "complete") done(); };
+    function done(): void { clearTimeout(timeout); chrome.tabs.onUpdated.removeListener(listener); resolve(); }
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
 async function executorMessage<T>(tabId: number, message: Message): Promise<T> {
   try { return await chrome.tabs.sendMessage(tabId, message) as T; }
   catch {
@@ -109,7 +118,15 @@ async function runProcedure(procedure: Procedure, inputValues: Record<string, st
   const stored = await chrome.storage.local.get([BACKEND_URL, SESSION]); const session = stored[SESSION] as api.Session | undefined;
   if (!session) throw new Error("Sign in before running a procedure.");
   const url = (stored[BACKEND_URL] as string | undefined) ?? api.DEFAULT_API_URL;
-  const tab = await activeTab();
+  let tab = await activeTab();
+  try {
+    if (tab.url && new URL(tab.url).origin !== new URL(procedure.starting_url).origin) {
+      execution = { running: true, procedure_id: procedure.procedure_id, current_step: startAt, outputs: {}, steps: procedure.steps.map((item) => ({ step_id: item.step_id, intent: item.intent, status: "pending", narration: "Opening the procedure's starting page…" })) };
+      await publishExecution();
+      await chrome.tabs.update(tab.id!, { url: procedure.starting_url }); await waitForTab(tab.id!);
+      tab = await chrome.tabs.get(tab.id!);
+    }
+  } catch { /* Keep the current page when its URL cannot be compared or navigated. */ }
   executionContext = { procedure, inputValues };
   execution = { running: true, procedure_id: procedure.procedure_id, current_step: startAt, outputs: execution.outputs, steps: procedure.steps.map((step, index) => ({ step_id: step.step_id, intent: step.intent, status: index < startAt ? "complete" : "pending", narration: index < startAt ? "Completed" : "Waiting" })) };
   await publishExecution();
@@ -310,7 +327,9 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
         break;
       case "STOP_EXECUTION": execution.running = false; execution.error = "Execution stopped."; await publishExecution(); sendResponse({ ok: true }); break;
       case "EXECUTION_ENABLE_POINTER": {
-        const tab = await activeTab(); await executorMessage(tab.id!, message); sendResponse({ ok: true }); break;
+        const tab = await activeTab(); await executorMessage(tab.id!, message);
+        if (execution.paused?.step_id === message.stepId) { execution.paused = { ...execution.paused, picking: true, reason: "Picker armed. Click the intended element on the web page, not in this side panel." }; await publishExecution(); }
+        sendResponse({ ok: true }); break;
       }
       case "EXECUTION_POINTER_TARGET": {
         if (!execution.paused || execution.paused.step_id !== message.stepId || !executionContext) { sendResponse({ ok: false }); break; }

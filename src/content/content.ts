@@ -279,7 +279,9 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
   if (message.type === "EXECUTION_SNAPSHOT") { sendResponse({ url: location.href, nodes: runtimeNodes() }); return; }
   if (message.type === "EXECUTION_ACTION") { void executeAction(message.refId, message.step, message.value).then(sendResponse); return true; }
   if (message.type === "EXECUTION_ENABLE_POINTER") {
-    const select = (event: MouseEvent): void => { const target = event.target instanceof Element ? interactionTarget(event.target) : null; if (!target) return; event.preventDefault(); event.stopPropagation(); chrome.runtime.sendMessage({ type: "EXECUTION_POINTER_TARGET", stepId: message.stepId, role: roleOf(target), accessibleName: accessibleName(target) } satisfies Message).catch(() => undefined); };
+    const previousCursor = document.documentElement.style.cursor;
+    document.documentElement.style.cursor = "crosshair";
+    const select = (event: MouseEvent): void => { document.documentElement.style.cursor = previousCursor; const target = event.target instanceof Element ? interactionTarget(event.target) : null; if (!target) return; event.preventDefault(); event.stopPropagation(); chrome.runtime.sendMessage({ type: "EXECUTION_POINTER_TARGET", stepId: message.stepId, role: roleOf(target), accessibleName: accessibleName(target) } satisfies Message).catch(() => undefined); };
     document.addEventListener("click", select, { capture: true, once: true });
     sendResponse({ ok: true }); return;
   }
