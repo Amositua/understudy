@@ -117,6 +117,65 @@ function snapshot(target?: Element): A11ySnapshot {
   return { url: location.href, timestamp: Date.now(), nodes: a11yNodes };
 }
 
+function runtimeNodes(): Array<A11yNode & { nearby_text: string }> {
+  const page = snapshot();
+  return page.nodes.map((node) => ({ ...node, nearby_text: node.accessible_name }));
+}
+
+function elementForReference(refId: string): Element | null {
+  return Array.from(document.querySelectorAll("body *")).find((element) => referenceId(element) === refId) ?? null;
+}
+
+function pause(milliseconds: number): Promise<void> { return new Promise((resolve) => window.setTimeout(resolve, milliseconds)); }
+
+async function settle(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const deadline = window.setTimeout(done, 8_000);
+    let quiet = window.setTimeout(done, 500);
+    const observer = new MutationObserver(() => { window.clearTimeout(quiet); quiet = window.setTimeout(done, 500); });
+    function done(): void { window.clearTimeout(deadline); window.clearTimeout(quiet); observer.disconnect(); resolve(); }
+    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+  });
+}
+
+async function outline(element: Element, caption: string): Promise<void> {
+  const rect = element.getBoundingClientRect();
+  const marker = document.createElement("div");
+  marker.setAttribute("data-understudy-overlay", "true");
+  marker.textContent = caption;
+  Object.assign(marker.style, { position: "fixed", zIndex: "2147483647", left: `${Math.max(0, rect.left)}px`, top: `${Math.max(0, rect.top - 28)}px`, maxWidth: "320px", padding: "4px 7px", border: "2px solid #818cf8", borderRadius: "5px", background: "#312e81", color: "white", font: "12px system-ui", pointerEvents: "none", boxShadow: "0 0 0 3px rgba(129,140,248,.35)" });
+  document.documentElement.append(marker);
+  await pause(400);
+  marker.remove();
+}
+
+function dismissCookieBanner(): void {
+  const button = Array.from(document.querySelectorAll("button, [role=button]")).find((element) => /^(dismiss|close|accept)( cookies?| cookie notice)?$/i.test(accessibleName(element)) || /cookie/i.test(element.closest("aside, [role=dialog], div")?.textContent ?? "") && /dismiss|close|accept/i.test(accessibleName(element)));
+  if (button) (button as HTMLElement).click();
+}
+
+function setValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string): void {
+  const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(element, value);
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+async function executeAction(refId: string, step: import("../lib/procedure").ProcedureStep, value?: string): Promise<{ ok: boolean; label: string; error?: string }> {
+  if (step.action === "extract" || step.action === "wait") { await settle(); return { ok: true, label: step.target_description }; }
+  dismissCookieBanner();
+  const element = elementForReference(refId);
+  if (!element) return { ok: false, label: "", error: "The selected element is no longer on the page." };
+  element.scrollIntoView({ block: "center", inline: "nearest" });
+  await outline(element, step.intent);
+  if (step.action === "type" || step.action === "select") {
+    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return { ok: false, label: accessibleName(element), error: "The selected element cannot accept a value." };
+    element.focus(); setValue(element, value ?? "");
+  } else (element as HTMLElement).click();
+  await settle();
+  return { ok: true, label: accessibleName(element) || element.tagName.toLowerCase() };
+}
+
 function context(element: Element): UnindexedStep["page_context"] {
   return { heading_hierarchy: Array.from(document.querySelectorAll("h1, h2, h3")).map((heading) => textOf(heading)).filter(Boolean), landmark: landmarkFor(element) };
 }
@@ -215,8 +274,15 @@ history.replaceState = function (data: unknown, unused: string, url?: string | U
 };
 
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
-  if (message.type === "RECORDING_STARTED") recording = true;
-  if (message.type === "RECORDING_STOPPED") recording = false;
+  if (message.type === "RECORDING_STARTED") { recording = true; sendResponse({ content_recorder: true, recording, url: window.location.href }); return; }
+  if (message.type === "RECORDING_STOPPED") { recording = false; sendResponse({ content_recorder: true, recording, url: window.location.href }); return; }
+  if (message.type === "EXECUTION_SNAPSHOT") { sendResponse({ url: location.href, nodes: runtimeNodes() }); return; }
+  if (message.type === "EXECUTION_ACTION") { void executeAction(message.refId, message.step, message.value).then(sendResponse); return true; }
+  if (message.type === "EXECUTION_ENABLE_POINTER") {
+    const select = (event: MouseEvent): void => { const target = event.target instanceof Element ? interactionTarget(event.target) : null; if (!target) return; event.preventDefault(); event.stopPropagation(); chrome.runtime.sendMessage({ type: "EXECUTION_POINTER_TARGET", stepId: message.stepId, role: roleOf(target), accessibleName: accessibleName(target) } satisfies Message).catch(() => undefined); };
+    document.addEventListener("click", select, { capture: true, once: true });
+    sendResponse({ ok: true }); return;
+  }
   sendResponse({ content_recorder: true, recording, url: window.location.href });
 });
 
