@@ -2,4 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base { body { @apply m-0 min-w-[320px] bg-slate-950 font-sans text-slate-100; } }
+@layer base {
+  :root { color-scheme: dark; }
+  body { @apply m-0 min-w-[320px] bg-[#08090c] font-sans text-slate-100 antialiased; }
+  button { @apply transition-colors duration-150; }
+  input, textarea, select { @apply font-sans; }
+  ::selection { @apply bg-indigo-400/30; }
+}
+
+@layer components {
+  .ui-shell { @apply min-h-screen bg-[#08090c] p-5; }
+  .ui-panel { @apply rounded-md border border-slate-800 bg-[#0e1016]; }
+  .ui-panel-active { @apply rounded-md border border-indigo-400/70 bg-indigo-400/[0.07]; }
+  .ui-label { @apply text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500; }
+  .ui-mono { @apply font-mono text-[11px] leading-5 text-slate-400; }
+  .ui-button { @apply rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-500 hover:bg-slate-800; }
+  .ui-button-primary { @apply rounded-md bg-indigo-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-indigo-300; }
+}
