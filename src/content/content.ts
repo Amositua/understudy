@@ -121,7 +121,19 @@ function snapshot(target?: Element): A11ySnapshot {
     for (const element of nodes) {
       if (target && (element === target || target.contains(element) || element.contains(target))) keep.add(element);
     }
-    selected = nodes.filter((element) => keep.has(element));
+    if (target) selected = nodes.filter((element) => keep.has(element));
+    else {
+      // During execution there is no known target yet. Keep visible, named
+      // controls first so large apps such as Gmail still expose Compose.
+      const visible = (element: Element): number => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && rect.bottom >= 0 && rect.top <= window.innerHeight ? 1 : 0;
+      };
+      selected = [...nodes].sort((left, right) => {
+        const score = (element: Element): number => (interactiveRoles.has(roleOf(element)) ? 8 : 0) + (accessibleName(element) ? 3 : 0) + visible(element) * 4 + (landmarkRoles.has(roleOf(element)) ? 1 : 0);
+        return score(right) - score(left);
+      }).slice(0, 300);
+    }
   }
   const a11yNodes: A11yNode[] = selected.slice(0, 300).map((element) => ({ role: roleOf(element), accessible_name: accessibleName(element), reference_id: referenceId(element) }));
   return { url: location.href, timestamp: Date.now(), nodes: a11yNodes };
