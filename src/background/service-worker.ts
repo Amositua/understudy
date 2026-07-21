@@ -121,16 +121,25 @@ async function runProcedure(procedure: Procedure, inputValues: Record<string, st
       const before = await executorMessage<{ nodes: RuntimeNode[] }>(tab.id!, { type: "EXECUTION_SNAPSHOT" });
       const local = localGround(step, before.nodes);
       let grounded: Grounding;
-      try {
-        grounded = await api.ground(url, session.token, step, before.nodes, retryReason);
-        if (!grounded.ref_id || grounded.confidence < 0.55) {
-          const screenshot = await captureScreenshot(tab.windowId);
-          grounded = await api.ground(url, session.token, step, before.nodes, retryReason, screenshot ?? undefined);
+      // Deterministic matches such as a labelled Username textbox should not
+      // wait for a cold remote model.  Start GPT grounding for observability,
+      // but act immediately when the live semantic match is already strong.
+      const remoteGround = api.ground(url, session.token, step, before.nodes, retryReason);
+      if (local.ref_id && local.confidence >= 0.7) {
+        grounded = { ...local, reason: `${local.reason} (Immediate semantic grounding.)` };
+        void remoteGround.catch(() => undefined);
+      } else {
+        try {
+          grounded = await remoteGround;
+          if (!grounded.ref_id || grounded.confidence < 0.55) {
+            const screenshot = await captureScreenshot(tab.windowId);
+            grounded = await api.ground(url, session.token, step, before.nodes, retryReason, screenshot ?? undefined);
+          }
+          if (local.ref_id && local.confidence > grounded.confidence) grounded = local;
+        } catch (error) {
+          if (!local.ref_id) throw error;
+          grounded = { ...local, reason: `${local.reason} (Grounder unavailable; using local semantic fallback.)` };
         }
-        if (local.ref_id && local.confidence > grounded.confidence) grounded = local;
-      } catch (error) {
-        if (!local.ref_id) throw error;
-        grounded = { ...local, reason: `${local.reason} (Grounder unavailable; using local semantic fallback.)` };
       }
       live.confidence = grounded.confidence; live.reason = grounded.reason;
       if (!grounded.ref_id || grounded.confidence < 0.55) {
@@ -149,11 +158,15 @@ async function runProcedure(procedure: Procedure, inputValues: Record<string, st
       }
       const after = await executorMessage<{ nodes: RuntimeNode[] }>(tab.id!, { type: "EXECUTION_SNAPSHOT" });
       let checked: Verification;
-      try { checked = await api.verify(url, session.token, step, after.nodes); }
-      catch { checked = localVerify(step, after.nodes); }
-      if (!checked.achieved) {
-        const fallbackVerification = localVerify(step, after.nodes);
-        if (fallbackVerification.achieved) checked = fallbackVerification;
+      const localCheck = localVerify(step, after.nodes);
+      const remoteCheck = api.verify(url, session.token, step, after.nodes);
+      if (localCheck.achieved) {
+        checked = { ...localCheck, reason: `${localCheck.reason} (Immediate local verification.)` };
+        void remoteCheck.catch(() => undefined);
+      } else {
+        try { checked = await remoteCheck; }
+        catch { checked = localCheck; }
+        if (!checked.achieved && localCheck.achieved) checked = localCheck;
       }
       live.reason = checked.reason;
       if (checked.achieved || step.action === "extract") { live.status = "complete"; live.narration = "Completed"; completed = true; await publishExecution(); }
