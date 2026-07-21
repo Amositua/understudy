@@ -160,6 +160,13 @@ async function runProcedure(procedure: Procedure, inputValues: Record<string, st
       }
       live.confidence = grounded.confidence; live.reason = grounded.reason;
       if (!grounded.ref_id || grounded.confidence < 0.55) {
+        if (attempt === 0) {
+          retryReason = grounded.reason;
+          live.narration = "Waiting for the page controls to finish loading, then trying again…";
+          await publishExecution();
+          await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
+          continue;
+        }
         if (step.optional) { live.status = "complete"; live.narration = "Optional step skipped — no confident match."; completed = true; await publishExecution(); break; }
         execution.running = false; live.status = "paused"; live.narration = "Paused — point at the right element."; execution.paused = { step_id: step.step_id, intent: step.intent, found: grounded.ref_id ?? "No plausible target", reason: grounded.reason }; await publishExecution(); return;
       }
