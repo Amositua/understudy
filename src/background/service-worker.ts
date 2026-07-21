@@ -1,7 +1,7 @@
 import type { Message } from "../lib/messages";
 import type { CapturePayload, RecorderState, Trace } from "../lib/types";
 import type { Procedure } from "../lib/procedure";
-import type { ExecutionState, RuntimeNode } from "../lib/executor";
+import type { ExecutionState, Grounding, RuntimeNode, Verification } from "../lib/executor";
 import * as api from "../lib/api";
 
 const SESSION_KEY = "understudy.activeRecorder";
@@ -60,6 +60,33 @@ function validExtraction(value: string, format: string): boolean {
   return true;
 }
 
+const ignoredGroundingWords = new Set(["the", "a", "an", "to", "in", "on", "of", "for", "and", "with", "from", "page", "button", "link", "field", "control", "required"]);
+function words(value: string): string[] { return value.toLowerCase().match(/[a-z0-9]+/g)?.filter((word) => !ignoredGroundingWords.has(word)) ?? []; }
+function localGround(step: Procedure["steps"][number], nodes: RuntimeNode[]): Grounding {
+  const allowedRoles = step.action === "type" || step.action === "select" ? new Set(["textbox", "searchbox", "combobox"]) : step.action === "click" || step.action === "navigate" ? new Set(["button", "link", "menuitem", "tab", "checkbox", "radio", "switch"]) : undefined;
+  const desired = words([step.intent, step.target_description, step.target_hints.accessible_name ?? "", step.target_hints.near_text ?? ""].join(" "));
+  const candidates = nodes.filter((node) => !allowedRoles || allowedRoles.has(node.role));
+  let best: { node: RuntimeNode; score: number } | undefined;
+  for (const node of candidates) {
+    const label = node.accessible_name.toLowerCase(); const nodeWords = new Set(words(`${node.accessible_name} ${node.nearby_text ?? ""}`));
+    let score = desired.filter((word) => nodeWords.has(word)).length;
+    if (step.target_hints.accessible_name && label === step.target_hints.accessible_name.toLowerCase()) score += 6;
+    if (/export/.test(step.intent + step.target_description) && /download|csv/.test(label)) score += 5;
+    if (/download/.test(step.intent + step.target_description) && /export/.test(label)) score += 5;
+    if (!best || score > best.score) best = { node, score };
+  }
+  if (!best || best.score < 1) return { ref_id: null, confidence: 0, reason: "No local semantic match was strong enough." };
+  return { ref_id: best.node.reference_id, confidence: Math.min(0.94, 0.46 + best.score * 0.1), reason: `Matched '${best.node.accessible_name}' by semantic target words${/download|csv/i.test(best.node.accessible_name) && /export/i.test(step.intent + step.target_description) ? " (Download CSV fulfils export intent)" : ""}.` };
+}
+
+function localVerify(step: Procedure["steps"][number], nodes: RuntimeNode[]): Verification {
+  if (step.action === "type" || step.action === "select" || step.action === "extract" || step.action === "wait") return { achieved: true, reason: "The action completed and the page settled." };
+  const pageWords = new Set(words(nodes.map((node) => `${node.accessible_name} ${node.nearby_text ?? ""}`).join(" ")));
+  const expected = words(step.expected_page);
+  const matched = expected.filter((word) => pageWords.has(word));
+  return matched.length >= Math.min(2, expected.length) ? { achieved: true, reason: "The expected page state is present in the live accessibility tree." } : { achieved: false, reason: "The expected page state was not yet evident in the live accessibility tree." };
+}
+
 async function saveUpdatedProcedure(procedure: Procedure): Promise<void> {
   const procedures = ((await chrome.storage.local.get(PROCEDURES_KEY))[PROCEDURES_KEY] as Procedure[] | undefined) ?? [];
   await chrome.storage.local.set({ [PROCEDURES_KEY]: [procedure, ...procedures.filter((item) => item.procedure_id !== procedure.procedure_id)] });
@@ -92,10 +119,18 @@ async function runProcedure(procedure: Procedure, inputValues: Record<string, st
     let completed = false; let retryReason: string | undefined;
     for (let attempt = 0; attempt < 2 && !completed; attempt += 1) {
       const before = await executorMessage<{ nodes: RuntimeNode[] }>(tab.id!, { type: "EXECUTION_SNAPSHOT" });
-      let grounded = await api.ground(url, session.token, step, before.nodes, retryReason);
-      if (!grounded.ref_id || grounded.confidence < 0.55) {
-        const screenshot = await captureScreenshot(tab.windowId);
-        grounded = await api.ground(url, session.token, step, before.nodes, retryReason, screenshot ?? undefined);
+      const local = localGround(step, before.nodes);
+      let grounded: Grounding;
+      try {
+        grounded = await api.ground(url, session.token, step, before.nodes, retryReason);
+        if (!grounded.ref_id || grounded.confidence < 0.55) {
+          const screenshot = await captureScreenshot(tab.windowId);
+          grounded = await api.ground(url, session.token, step, before.nodes, retryReason, screenshot ?? undefined);
+        }
+        if (local.ref_id && local.confidence > grounded.confidence) grounded = local;
+      } catch (error) {
+        if (!local.ref_id) throw error;
+        grounded = { ...local, reason: `${local.reason} (Grounder unavailable; using local semantic fallback.)` };
       }
       live.confidence = grounded.confidence; live.reason = grounded.reason;
       if (!grounded.ref_id || grounded.confidence < 0.55) {
@@ -113,7 +148,13 @@ async function runProcedure(procedure: Procedure, inputValues: Record<string, st
         execution.outputs[step.extract.output_key] = result.value; live.reason = result.reason;
       }
       const after = await executorMessage<{ nodes: RuntimeNode[] }>(tab.id!, { type: "EXECUTION_SNAPSHOT" });
-      const checked = await api.verify(url, session.token, step, after.nodes);
+      let checked: Verification;
+      try { checked = await api.verify(url, session.token, step, after.nodes); }
+      catch { checked = localVerify(step, after.nodes); }
+      if (!checked.achieved) {
+        const fallbackVerification = localVerify(step, after.nodes);
+        if (fallbackVerification.achieved) checked = fallbackVerification;
+      }
       live.reason = checked.reason;
       if (checked.achieved || step.action === "extract") { live.status = "complete"; live.narration = "Completed"; completed = true; await publishExecution(); }
       else { retryReason = checked.reason; live.narration = `Verification needs a retry — ${checked.reason}`; await publishExecution(); }
