@@ -11,6 +11,16 @@ let navigationTimer: number | undefined;
 const interactiveRoles = new Set(["button", "checkbox", "combobox", "link", "menuitem", "option", "radio", "searchbox", "slider", "spinbutton", "switch", "tab", "textbox"]);
 const landmarkRoles = new Set(["banner", "complementary", "contentinfo", "form", "main", "navigation", "region", "search"]);
 
+/** A page can retain an old content script briefly after the extension reloads. */
+function safeRuntimeMessage<T>(message: Message): Promise<T | undefined> {
+  try {
+    if (!chrome.runtime?.id) return Promise.resolve(undefined);
+    return chrome.runtime.sendMessage(message).catch(() => undefined) as Promise<T | undefined>;
+  } catch {
+    return Promise.resolve(undefined);
+  }
+}
+
 function textOf(element: Element): string {
   return (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)
     ? ""
@@ -200,13 +210,14 @@ function makeNavigationStep(): UnindexedStep {
 }
 
 function send(payload: CapturePayload): void {
-  chrome.runtime.sendMessage({ type: "CAPTURE", payload } satisfies Message).catch(() => undefined);
+  void safeRuntimeMessage({ type: "CAPTURE", payload } satisfies Message);
 }
 
 async function recorderIsActive(): Promise<boolean> {
   if (recording) return true;
   try {
-    const response = await chrome.runtime.sendMessage({ type: "RECORDER_STATUS" } satisfies Message) as StateResponse;
+    const response = await safeRuntimeMessage<StateResponse>({ type: "RECORDER_STATUS" } satisfies Message);
+    if (!response) return false;
     recording = response.state.recording;
     return recording;
   } catch {
@@ -281,14 +292,15 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
   if (message.type === "EXECUTION_ENABLE_POINTER") {
     const previousCursor = document.documentElement.style.cursor;
     document.documentElement.style.cursor = "crosshair";
-    const select = (event: MouseEvent): void => { document.documentElement.style.cursor = previousCursor; const target = event.target instanceof Element ? interactionTarget(event.target) : null; if (!target) return; event.preventDefault(); event.stopPropagation(); chrome.runtime.sendMessage({ type: "EXECUTION_POINTER_TARGET", stepId: message.stepId, role: roleOf(target), accessibleName: accessibleName(target) } satisfies Message).catch(() => undefined); };
+    const select = (event: MouseEvent): void => { document.documentElement.style.cursor = previousCursor; const target = event.target instanceof Element ? interactionTarget(event.target) : null; if (!target) return; event.preventDefault(); event.stopPropagation(); void safeRuntimeMessage({ type: "EXECUTION_POINTER_TARGET", stepId: message.stepId, role: roleOf(target), accessibleName: accessibleName(target) } satisfies Message); };
     document.addEventListener("click", select, { capture: true, once: true });
     sendResponse({ ok: true }); return;
   }
   sendResponse({ content_recorder: true, recording, url: window.location.href });
 });
 
-chrome.runtime.sendMessage({ type: "RECORDER_STATUS" } satisfies Message).then((response: StateResponse) => {
+void safeRuntimeMessage<StateResponse>({ type: "RECORDER_STATUS" } satisfies Message).then((response) => {
+  if (!response) return;
   recording = response.state.recording;
   if (recording) {
     lastUrl = "";
