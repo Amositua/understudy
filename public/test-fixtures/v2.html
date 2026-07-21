@@ -52,6 +52,7 @@
             <tr class="total"><th scope="row">Total Revenue</th><td>$26,700</td></tr>
           </tbody>
         </table>
+        <p id="download-status" role="status" aria-live="polite"></p>
       </section>
     </main>
     <script>
@@ -62,6 +63,15 @@
         event.preventDefault();
         document.getElementById('login-form').classList.add('hidden');
         document.getElementById('report').classList.remove('hidden');
+      });
+      document.getElementById('download-report').addEventListener('click', function () {
+        const csv = 'Month,Revenue\\nJanuary,12500\\nFebruary,14200\\nTotal Revenue,26700\\n';
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+        link.download = 'monthly-report.csv';
+        link.click();
+        URL.revokeObjectURL(link.href);
+        document.getElementById('download-status').textContent = 'Monthly report downloaded as CSV.';
       });
     </script>
   </body>
