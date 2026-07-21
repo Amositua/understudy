@@ -1,7 +1,9 @@
 import { ProcedureSchema, type Procedure } from "./procedure.js";
 type Trace = { trace_id: string; steps: unknown[]; snapshots: Array<{ url: string; timestamp: number; nodes: Array<{ role: string; accessible_name: string }> }>; notes: unknown[] };
 
-const prompt = `You are Understudy's Compiler. Convert a browser trace into one durable Procedure JSON object. Return JSON only. Capture intent, not clicks. Remove scroll/focus/redundancy and merge incidental menu clicks. Identify credentials, dates, search terms, and note-marked values as inputs; password values are secret inputs. Identify reads/copies as extract steps. Describe targets semantically, never with selectors, colours, or positions. Every step needs a verifiable expected_page. Mark cookie banners/modals optional. The JSON must have procedure_id, name, description, starting_url, inputs, steps, outputs. Steps have intent, action, target_description, target_hints, expected_page, optional, and when applicable value_source or extract.`;
+const prompt = `You are Understudy's Compiler. Convert a browser trace into one durable Procedure JSON object. Return JSON only. Capture intent, not clicks. Remove scroll/focus/redundancy and merge incidental menu clicks. Identify credentials, dates, search terms, and note-marked values as inputs; password values are secret inputs. Identify reads/copies as extract steps. Describe targets semantically, never with selectors, colours, or positions. Every step needs a verifiable expected_page. Mark cookie banners/modals optional.
+
+You MUST return this exact shape: {"procedure_id":"string","name":"string","description":"string","starting_url":"string","inputs":[{"key":"string","label":"string","kind":"text|secret|date|number","default":"optional string"}],"steps":[{"step_id":"string","intent":"string","action":"click|type|select|navigate|extract|wait","target_description":"string","target_hints":{"role":"optional string","accessible_name":"optional string","near_text":"optional string","landmark":"optional string"},"value_source":{"kind":"input|literal","key":"optional string","literal":"optional string"},"extract":{"output_key":"string","what":"string","format":"text|number|currency|date"},"expected_page":"string","optional":false}],"outputs":[{"key":"string","label":"string","destination":"sheet|clipboard|display"}]}. target_hints is REQUIRED for every step, even when empty. value_source and extract are optional. inputs and outputs must be arrays, even when empty.`;
 
 function context(trace: Trace): string {
   return JSON.stringify({
@@ -40,4 +42,26 @@ async function callOpenAI(input: string, repair?: string): Promise<string> {
   if (!output) throw new Error("OpenAI returned no compiler output. Check the server logs for the raw response status.");
   return output;
 }
-export async function compileTrace(trace: Trace): Promise<Procedure> { const input = context(trace); let raw = await callOpenAI(input); for (let attempt = 0; attempt < 2; attempt += 1) { try { return ProcedureSchema.parse(JSON.parse(raw)); } catch (error) { console.warn("Compiler validation failure", { attempt, error }); raw = await callOpenAI(input, `Repair invalid procedure JSON. Validation error: ${error instanceof Error ? error.message : String(error)}. Return JSON only.`); } } throw new Error("Compiler output did not validate after repair."); }
+function validationDetail(raw: string): string {
+  try {
+    const result = ProcedureSchema.safeParse(JSON.parse(raw));
+    if (result.success) return "";
+    return result.error.issues.slice(0, 8).map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`).join("; ");
+  } catch (error) { return `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`; }
+}
+export async function compileTrace(trace: Trace): Promise<Procedure> {
+  const input = context(trace);
+  let raw = await callOpenAI(input);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const detail = validationDetail(raw);
+    try {
+      const result = ProcedureSchema.safeParse(JSON.parse(raw));
+      if (result.success) return result.data;
+    } catch {
+      // The repair request below handles invalid JSON as well as invalid schema fields.
+    }
+    console.warn("Compiler validation failure", { attempt, detail });
+    raw = await callOpenAI(input, `Repair the previous invalid Procedure JSON. Return a complete JSON object only. Validation issues: ${detail}\n\nPrevious JSON:\n${raw}`);
+  }
+  throw new Error(`Compiler output did not validate after repair: ${validationDetail(raw)}`);
+}
