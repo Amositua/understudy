@@ -69,14 +69,12 @@ async function startRecording(): Promise<RecorderState> {
   if (tab?.id) {
     try {
       const armed = await chrome.tabs.sendMessage(tab.id, { type: "RECORDING_STARTED" }) as { content_recorder?: boolean } | undefined;
-      if (!armed?.content_recorder) throw new Error("Content recorder did not acknowledge start.");
-      console.info("Understudy recorder armed", { tabId: tab.id, url: tab.url });
+      console.info(armed?.content_recorder ? "Understudy recorder armed" : "Understudy recorder signalled (legacy content script)", { tabId: tab.id, url: tab.url });
     } catch (initialError) {
       try {
         await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/content.js"] });
         const armed = await chrome.tabs.sendMessage(tab.id, { type: "RECORDING_STARTED" }) as { content_recorder?: boolean } | undefined;
-        if (!armed?.content_recorder) throw new Error("Injected content recorder did not acknowledge start.");
-        console.info("Understudy recorder injected and armed", { tabId: tab.id, url: tab.url });
+        console.info(armed?.content_recorder ? "Understudy recorder injected and armed" : "Understudy recorder injected", { tabId: tab.id, url: tab.url });
       } catch (injectionError) {
         console.error("Understudy could not arm the content recorder", { tabId: tab.id, url: tab.url, initialError, injectionError });
       }
