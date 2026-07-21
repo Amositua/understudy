@@ -62,9 +62,7 @@ async function recordCapture(payload: CapturePayload, windowId?: number): Promis
   await persistSession();
 }
 
-async function startRecording(): Promise<RecorderState> {
-  state = { recording: true, trace: newTrace() };
-  await persistSession();
+async function armActiveTab(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id) {
     try {
@@ -80,6 +78,12 @@ async function startRecording(): Promise<RecorderState> {
       }
     }
   }
+}
+
+async function startRecording(): Promise<RecorderState> {
+  state = { recording: true, trace: newTrace() };
+  await persistSession();
+  void armActiveTab().catch((error: unknown) => console.error("Understudy could not query the active tab", error));
   return state;
 }
 
